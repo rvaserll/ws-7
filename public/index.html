@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WS7</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <div class="container">
+
+        <div class="box box1">
+            <h3>Page 1</h3>
+            <div class="x">Variant 7</div>
+        </div>
+
+        <div class="middle">
+
+            <div class="left-col">
+                <div class="box box2">Menu</div>
+
+                <div class="box box5" id="logsBlock">
+                    <div class="events-header">Журнал подій</div>
+                    <div class="table-wrapper">
+                        <table id="comparisonTable">
+                            <thead>
+                                <tr>
+                                    <th>№</th>
+                                    <th>LocalStorage</th>
+                                    <th>2 method time</th>
+                                    <th>1 method time</th>
+                                    <th>diff</th>
+                                </tr>
+                            </thead>
+                            <tbody id="eventsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="center-col">
+                <div class="box box3">
+
+                    <div id="defaultContent3">
+                        Main content
+                    </div>
+
+                    <div id="work">
+                        <div id="controls">
+                            <div id="messages"></div>
+
+                            <div class="buttons-right">
+                                <button id="startBtn">Start</button>
+                                <button id="reloadBtn" style="display:none;">Reload</button>
+                                <button id="closeBtn">Close</button>
+                            </div>
+                        </div>
+
+                        <div id="anim">
+                            <div id="sq1" class="square red"></div>
+                            <div id="sq2" class="square green"></div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="box box6">
+                    <button id="playBtn">Play</button>
+                </div>
+            </div>
+
+            <div class="box box4">
+                Lorem ipsum dolor sit, amet consectetur adipisicing elit. Debitis quisquam est nostrum et, doloribus vel
+                qui alias fugit perferendis ipsam optio rerum enim aliquid officia sint ab natus rem! Voluptates!
+            </div>
+        </div>
+
+        <div class="box box7">
+            <h3>Footer</h3>
+            <div class="y">IPz-41 Kudelya Polina</div>
+        </div>
+    </div>
+    <script>
+        const CONFIG = {
+            squareSize: 10,
+            intervalMs: 100,
+            storageKey: 'ws7_events_rails_v7',
+            endpoints: {
+                create: '/events',
+                batch: '/events/batch_create',
+                index: '/events',
+                purge: '/events/purge'
+            }
+        };
+
+        const dom = {
+            work: document.getElementById("work"),
+            defaultContent: document.getElementById("defaultContent3"),
+            anim: document.getElementById("anim"),
+            messages: document.getElementById("messages"),
+            tableBody: document.getElementById("eventsTableBody"),
+
+            playBtn: document.getElementById("playBtn"),
+            startBtn: document.getElementById("startBtn"),
+            reloadBtn: document.getElementById("reloadBtn"),
+            closeBtn: document.getElementById("closeBtn"),
+
+            sq1: document.getElementById("sq1"),
+            sq2: document.getElementById("sq2")
+        };
+
+        const DIRECTIONS = {
+            LEFT: 0,
+            UP: 1,
+            RIGHT: 2,
+            DOWN: 3
+        };
+
+        let state = {
+            timer: null,
+            eventNumber: 0,
+            squares: [
+                { el: dom.sq1, x: 0, y: 0, stepCount: 0, direction: DIRECTIONS.LEFT, name: "Red", isInBounceMode: false, originalDirection: DIRECTIONS.LEFT },
+                { el: dom.sq2, x: 0, y: 0, stepCount: 0, direction: DIRECTIONS.LEFT, name: "Green", isInBounceMode: false, originalDirection: DIRECTIONS.LEFT }
+            ]
+        };
+
+        function formatTimeWithMs(isoString) {
+            if (!isoString) return '-';
+            const date = new Date(isoString);
+            const time = date.toLocaleTimeString('uk-UA', { hour12: false });
+            const ms = String(date.getMilliseconds()).padStart(3, '0');
+            return `${time}.${ms}`;
+        }
+
+        function logEvent(text) {
+            state.eventNumber++;
+            const now = new Date();
+            const isoTime = now.toISOString();
+
+            const msgDiv = document.createElement("div");
+            msgDiv.textContent = `${state.eventNumber}. ${formatTimeWithMs(isoTime)}: ${text}`;
+            dom.messages.insertBefore(msgDiv, dom.messages.firstChild); // Новые сверху
+
+            const eventData = {
+                number: state.eventNumber,
+                message: text,
+                client_time: isoTime
+            };
+
+            saveToLocalStorage(eventData);
+            sendImmediate(eventData);
+        }
+
+        function saveToLocalStorage(data) {
+            const events = JSON.parse(localStorage.getItem(CONFIG.storageKey) || "[]");
+            events.push(data);
+            localStorage.setItem(CONFIG.storageKey, JSON.stringify(events));
+        }
+
+        function sendImmediate(data) {
+            fetch(CONFIG.endpoints.create, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data)
+            }).catch(e => console.warn("Rails immediate error:", e));
+        }
+
+        async function flushLocalStorage() {
+            const events = JSON.parse(localStorage.getItem(CONFIG.storageKey) || "[]");
+            if (events.length === 0) return;
+
+            try {
+                await fetch(CONFIG.endpoints.batch, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ events: events })
+                });
+                console.log("Batch sent to Rails");
+            } catch (e) { console.error("Batch error:", e); }
+        }
+
+        function initPositions() {
+            const w = dom.anim.clientWidth - CONFIG.squareSize;
+            const h = dom.anim.clientHeight - CONFIG.squareSize;
+
+            state.squares.forEach(sq => {
+                sq.x = Math.floor(Math.random() * w);
+                sq.y = Math.floor(Math.random() * h);
+                sq.stepCount = 0; 
+                sq.direction = DIRECTIONS.LEFT;
+                sq.isInBounceMode = false;
+                sq.originalDirection = DIRECTIONS.LEFT;
+                updateSquareDOM(sq);
+            });
+        }
+
+        function updateSquareDOM(sq) {
+            sq.el.style.left = sq.x + "px";
+            sq.el.style.top = sq.y + "px";
+        }
+
+        function moveSquares() {
+            const maxW = dom.anim.clientWidth - CONFIG.squareSize;
+            const maxH = dom.anim.clientHeight - CONFIG.squareSize;
+
+            state.squares.forEach(sq => {
+                sq.stepCount++;
+                const speed = sq.stepCount;
+
+                let nextX = sq.x;
+                let nextY = sq.y;
+
+                if (sq.direction === DIRECTIONS.LEFT) nextX -= speed;
+                else if (sq.direction === DIRECTIONS.UP) nextY -= speed;
+                else if (sq.direction === DIRECTIONS.RIGHT) nextX += speed;
+                else if (sq.direction === DIRECTIONS.DOWN) nextY += speed;
+
+                let hitWall = false;
+                let wallSide = '';
+
+                if (nextX < 0) {
+                    hitWall = true;
+                    wallSide = 'left';
+                    sq.stepCount = 0;
+
+                    if (!sq.isInBounceMode) {
+                        sq.originalDirection = sq.direction;
+                        sq.direction = DIRECTIONS.RIGHT; 
+                        sq.isInBounceMode = true;
+                    } else {
+                        sq.direction = (sq.direction + 1) % 4;
+                        sq.isInBounceMode = false;
+                    }
+
+                    nextX = Math.floor(Math.random() * (maxW + 1));
+                    nextY = Math.floor(Math.random() * (maxH + 1));
+                } else if (nextX > maxW) {
+                    hitWall = true;
+                    wallSide = 'right';
+                    sq.stepCount = 0;
+
+                    if (!sq.isInBounceMode) {
+                        sq.originalDirection = sq.direction;
+                        sq.direction = DIRECTIONS.LEFT;
+                        sq.isInBounceMode = true;
+                    } else {
+                        sq.direction = (sq.direction + 1) % 4;
+                        sq.isInBounceMode = false;
+                    }
+                    nextX = Math.floor(Math.random() * (maxW + 1));
+                    nextY = Math.floor(Math.random() * (maxH + 1));
+                }
+
+                if (nextY < 0) {
+                    hitWall = true;
+                    wallSide = 'top';
+                    sq.stepCount = 0;
+
+                    if (!sq.isInBounceMode) {
+                        sq.originalDirection = sq.direction;
+                        sq.direction = DIRECTIONS.DOWN;
+                        sq.isInBounceMode = true;
+                    } else {
+                        sq.direction = (sq.direction + 1) % 4;
+                        sq.isInBounceMode = false;
+                    }
+                    nextX = Math.floor(Math.random() * (maxW + 1));
+                    nextY = Math.floor(Math.random() * (maxH + 1));
+                } else if (nextY > maxH) {
+                    hitWall = true;
+                    wallSide = 'bottom';
+                    sq.stepCount = 0;
+
+                    if (!sq.isInBounceMode) {
+                        sq.originalDirection = sq.direction;
+                        sq.direction = DIRECTIONS.UP;
+                        sq.isInBounceMode = true;
+                    } else {
+                        sq.direction = (sq.direction + 1) % 4;
+                        sq.isInBounceMode = false;
+                    }
+                    nextX = Math.floor(Math.random() * (maxW + 1));
+                    nextY = Math.floor(Math.random() * (maxH + 1));
+                }
+                if (!hitWall) {
+                    if (!sq.isInBounceMode) {
+                        sq.direction = (sq.direction + 1) % 4;
+                    } else {
+                        sq.direction = (sq.direction - 1 + 4) % 4;
+                    }
+                }
+
+                sq.x = nextX;
+                sq.y = nextY;
+                updateSquareDOM(sq);
+
+                logEvent(`Step: ${sq.name} moved`);
+
+                if (hitWall) {
+                    logEvent(`Hit Wall: ${sq.name} hit ${wallSide} wall`);
+                }
+            });
+
+            const s1 = state.squares[0];
+            const s2 = state.squares[1];
+            if (s1.x < s2.x + CONFIG.squareSize &&
+                s1.x + CONFIG.squareSize > s2.x &&
+                s1.y < s2.y + CONFIG.squareSize &&
+                s1.y + CONFIG.squareSize > s2.y) {
+
+                logEvent("Collision! Animation Stopped.");
+                stopAnim();
+            }
+        }
+
+        function startAnim() {
+            dom.startBtn.disabled = true;
+            logEvent("Animation Started");
+            state.timer = setInterval(moveSquares, CONFIG.intervalMs);
+        }
+
+        function stopAnim() {
+            clearInterval(state.timer);
+            dom.startBtn.style.display = "none";
+            dom.reloadBtn.style.display = "inline-block";
+        }
+
+        dom.playBtn.onclick = async () => {
+            try {
+                await fetch(CONFIG.endpoints.purge, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+            } catch (e) {
+                console.warn("Purge error:", e);
+            }
+
+            dom.defaultContent.style.display = "none";
+            dom.work.style.display = "flex";
+
+            localStorage.removeItem(CONFIG.storageKey);
+            dom.messages.innerHTML = "";
+            dom.tableBody.innerHTML = "";
+            state.eventNumber = 0;
+
+            dom.startBtn.style.display = "inline-block";
+            dom.startBtn.disabled = false;
+            dom.reloadBtn.style.display = "none";
+
+            setTimeout(initPositions, 50);
+        };
+
+        dom.startBtn.onclick = startAnim;
+
+        dom.reloadBtn.onclick = () => {
+            initPositions();
+            dom.reloadBtn.style.display = "none";
+            dom.startBtn.style.display = "inline-block";
+            dom.startBtn.disabled = false;
+            logEvent("Reloaded positions");
+        };
+
+        dom.closeBtn.onclick = async () => {
+            if (state.timer) clearInterval(state.timer);
+
+            await flushLocalStorage();
+
+            dom.work.style.display = "none";
+            dom.defaultContent.style.display = "block";
+
+            renderTableWithDiff();
+        };
+
+        async function renderTableWithDiff() {
+            dom.tableBody.innerHTML = "<tr><td colspan='5'>Loading data from Rails...</td></tr>";
+
+            try {
+                const localEvents = JSON.parse(localStorage.getItem(CONFIG.storageKey) || "[]");
+
+                let serverEvents = [];
+                try {
+                    const res = await fetch(CONFIG.endpoints.index);
+                    if (res.ok) serverEvents = await res.json();
+                } catch (e) { console.error("Fetch logs error", e); }
+                dom.tableBody.innerHTML = "";
+                if (serverEvents.length === 0) {
+                    dom.tableBody.innerHTML = "<tr><td colspan='5'>No data</td></tr>";
+                    return;
+                }
+
+                const sortedServerEvents = [...serverEvents].sort((a, b) => a.number - b.number);
+                let comparisonHTML = "";
+
+                if (sortedServerEvents.length > 0) {
+                    const first = sortedServerEvents[0];
+                    const firstClientTime = new Date(first.client_time);
+                    const firstServerTime = new Date(first.server_time);
+                    const firstTimeDiff = firstServerTime - firstClientTime;
+
+                    const last = sortedServerEvents[sortedServerEvents.length - 1];
+                    const lastClientTime = new Date(last.client_time);
+                    const lastServerTime = new Date(last.server_time);
+                    const lastTimeDiff = lastServerTime - lastClientTime;
+
+                    let clientIntervals = [];
+                    for (let i = 1; i < sortedServerEvents.length; i++) {
+                        const prevTime = new Date(sortedServerEvents[i - 1].client_time);
+                        const currTime = new Date(sortedServerEvents[i].client_time);
+                        clientIntervals.push(currTime - prevTime);
+                    }
+
+                    let serverIntervals = [];
+                    for (let i = 1; i < sortedServerEvents.length; i++) {
+                        const prevTime = new Date(sortedServerEvents[i - 1].server_time);
+                        const currTime = new Date(sortedServerEvents[i].server_time);
+                        serverIntervals.push(currTime - prevTime);
+                    }
+
+                    comparisonHTML = `
+                        <tr style="background-color: #f0f0f0; font-weight: bold;">
+                            <td colspan="5" style="padding: 10px;">
+                                <div style="font-size: 12px; line-height: 1.6;">
+                                    <div><strong>Порівняння способів збереження:</strong></div>
+                                    <div style="margin-top: 8px;">
+                                        <div><strong>Початкові часи:</strong></div>
+                                        <div style="margin-left: 15px;">
+                                            Client time: ${formatTimeWithMs(first.client_time)}<br>
+                                            Server time: ${formatTimeWithMs(first.server_time)}<br>
+                                            Різниця: ${firstTimeDiff >= 0 ? '+' : ''}${firstTimeDiff}ms
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: 8px;">
+                                        <div><strong>Кінцеві часи:</strong></div>
+                                        <div style="margin-left: 15px;">
+                                            Client time: ${formatTimeWithMs(last.client_time)}<br>
+                                            Server time: ${formatTimeWithMs(last.server_time)}<br>
+                                            Різниця: ${lastTimeDiff >= 0 ? '+' : ''}${lastTimeDiff}ms
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }
+
+                if (comparisonHTML) {
+                    const comparisonRow = document.createElement("tr");
+                    comparisonRow.innerHTML = comparisonHTML;
+                    dom.tableBody.appendChild(comparisonRow);
+                }
+
+                serverEvents.forEach(event => {
+                    const tr = document.createElement("tr");
+                    const tdNum = document.createElement("td");
+                    tdNum.textContent = event.number;
+
+                    const tdLocalStorage = document.createElement("td");
+                    const localEvent = localEvents.find(local => local.number === event.number);
+                    if (localEvent) {
+                        tdLocalStorage.innerHTML = `
+                            <div>${localEvent.message || ''}</div>
+                            <div style="font-size: 0.85em; color: gray;">
+                                ${formatTimeWithMs(localEvent.client_time)}
+                            </div>
+                        `;
+                    } else {
+                        tdLocalStorage.textContent = "Not found";
+                        tdLocalStorage.style.color = "gray";
+                    }
+
+                    const tdLocal = document.createElement("td");
+                    tdLocal.textContent = formatTimeWithMs(event.client_time);
+
+                    const tdServer = document.createElement("td");
+                    tdServer.textContent = formatTimeWithMs(event.server_time);
+
+                    const tdDiff = document.createElement("td");
+                    const diffMs = event.diff || 0;
+                    const diffSign = diffMs >= 0 ? "+" : "";
+                    const color = Math.abs(diffMs) > 1000 ? "red" : "green";
+                    tdDiff.textContent = `${diffSign}${diffMs}ms`;
+                    tdDiff.style.color = color;
+                    tdDiff.style.fontWeight = "bold";
+
+                    tr.appendChild(tdNum);
+                    tr.appendChild(tdLocalStorage);
+                    tr.appendChild(tdLocal);
+                    tr.appendChild(tdServer);
+                    tr.appendChild(tdDiff);
+                    dom.tableBody.appendChild(tr);
+                });
+
+            } catch (err) {
+                console.error(err);
+                dom.tableBody.innerHTML = "<tr><td colspan='5'>Error generating report</td></tr>";
+            }
+        }
+    </script>
+</body>
+
+</html>
